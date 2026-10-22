@@ -1,10 +1,13 @@
-function R = vn_bench_test(mdl, step, p)
+function R = vn_bench_test(mdl, step, p, run)
 %VN_BENCH_TEST  Milestone-1 bench acceptance test of the IMU_RAW path.
 %   R = vn_bench_test(mdl)               % 'all': run A, run B, analysis, power-cycle check
 %   R = vn_bench_test(mdl, 'A')          % run A: IMU_RAW active, static p.bench_static_T s, then moved by hand
 %   R = vn_bench_test(mdl, 'B')          % run B: same model, IMU_RAW/RX commented out
 %   R = vn_bench_test(mdl, 'analyze')    % analyse existing <bench>_A_* and <bench>_B_* logs
 %   R = vn_bench_test(mdl, 'powercycle') % prompt for a power cycle, then vn_configure verify_only
+%   R = vn_bench_test(mdl, 'timing', p, 'B')  % 1 kHz loop timing of one existing run only
+%                                        (no IMU criteria; for tuning the model's real-time setup,
+%                                        e.g. with a shorter p.bench_T)
 %
 %   Pass criteria, run A:  CRC failures = 0, sensor-time gaps = 0,
 %   duplicates = 0; packet rate within 0.1 % of p.rate after drift
@@ -23,8 +26,9 @@ function R = vn_bench_test(mdl, step, p)
 %   After the test the model's StopTime and RX are restored, so rebuild
 %   before using the model again.
 %   Normal simulation: SimulationCommand 'start'; refuses to run without
-%   simulation pacing (EnablePacing), which would make the 600 s run finish
-%   in seconds.  The model must already contain IMU_RAW (vn_add_imu_raw) and
+%   simulation pacing (EnablePacing), which would make the p.bench_T run
+%   finish in seconds.  Default run length: p.bench_static_T = 60 s still,
+%   then 300 s moved by hand (p.bench_T = 360 s).  The model must already contain IMU_RAW (vn_add_imu_raw) and
 %   the VN-100 must have been configured.
 
 if nargin < 2 || isempty(step), step = 'all'; end
@@ -42,6 +46,11 @@ switch lower(step)
     case 'powercycle'
         R.verify = powercycle(p);
         R.pass = R.verify.pass;
+    case 'timing'
+        if nargin < 4 || isempty(run), run = 'B'; end
+        f = vn_run_files(p.bench_subj, run, p);
+        R.timing = loop_timing(f.clk, p);
+        return;
     case 'all'
         run_once(mdl, 'A', true, p);
         run_once(mdl, 'B', false, p);
@@ -72,6 +81,7 @@ vn_set_run(mdl, p.bench_subj, run, p, rx_on);
 old_stop = get_param(mdl, 'StopTime');
 set_param(mdl, 'StopTime', sprintf('%g', p.bench_T));
 cleanup = onCleanup(@() restore(mdl, old_stop, p, quarc));
+setappdata(0, 'vn_log_run_lock', true);   % init.m (InitFcn) must not rename the bench logs
 if quarc
     fprintf('\nBuilding %s for run %s (qc_build_model) ...\n', mdl, run);
     qc_build_model(mdl);
@@ -127,6 +137,7 @@ end
 end
 
 function restore(mdl, old_stop, p, quarc)
+if isappdata(0, 'vn_log_run_lock'), rmappdata(0, 'vn_log_run_lock'); end
 if quarc && strcmp(qc_get_simulation_status(mdl), 'external')
     fprintf('Stopping %s ...\n', mdl);       % e.g. after Ctrl+C
     qc_stop_model(mdl);
@@ -263,6 +274,25 @@ T = struct('p99', vn_prctile(dq, 99), 'p999', vn_prctile(dq, 99.9), 'max_dt', ma
     'missing', missing, 'wall', wall);
 fprintf('  %s: step mean %.4f ms, P99 %.4f ms, P99.9 %.4f ms, max %.3f ms, max lag %.3f ms\n', ...
     file, 1e3 * T.mean_dt, 1e3 * T.p99, 1e3 * T.p999, 1e3 * T.max_dt, 1e3 * T.max_lag);
+end
+
+function T = loop_timing(file, p)
+% timing_stats plus how the lag builds up: slowdown, long-step bursts, catch-up
+T = timing_stats(file, p);
+[t, Q] = vn_load_tofile(file);
+q  = double(Q(:, 1));
+k  = t >= t(1) + p.bench_skip;
+t  = t(k); q = q(k);
+dq = diff(q);
+T.slowdown_pct = 100 * ((q(end) - q(1)) / (t(end) - t(1)) - 1);
+T.lag_rate_ms_per_s = 1e3 * T.end_lag / (t(end) - t(1));
+T.n_over_1p5ms = sum(dq > 1.5e-3);
+T.n_over_5ms   = sum(dq > 5e-3);
+T.excess_ms    = 1e3 * sum(dq(dq > 1.1e-3) - 1e-3);
+T.catchup_ms   = 1e3 * sum(dq(dq < 0.9e-3) - 1e-3);
+fprintf(['  model %.3f %% slower than real time, lag grows %.2f ms/s (end %.1f ms) | steps > 1.5 ms: %d, > 5 ms: %d | ' ...
+    'time lost in long steps %.0f ms, recovered in short steps %.0f ms\n'], T.slowdown_pct, T.lag_rate_ms_per_s, ...
+    1e3 * T.end_lag, T.n_over_1p5ms, T.n_over_5ms, T.excess_ms, -T.catchup_ms);
 end
 
 function [worst, nb] = backlog_recovery(queued, tq, nbuf)

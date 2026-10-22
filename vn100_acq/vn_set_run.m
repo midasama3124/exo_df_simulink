@@ -32,6 +32,7 @@ chg = false;
 chg = set_log([top '/RX/ToFile_bytes'], files.bytes, '_imu_bytes.mat', p) || chg;
 chg = set_log([top '/RX/ToFile_diag'],  files.diag,  '_imu_diag.mat',  p) || chg;
 chg = set_log([top '/CLK/ToFile_clk'],  files.clk,   '_clk.mat',       p) || chg;
+chg = set_log([mdl '/ToFile_motor'],    files.motor, '_motor.mat',     p) || chg;   % vn_add_motor_log
 chg = set_if([top '/RX/vn_raw_rx'],  'Parameters', vn_rx_param_str(p)) || chg;
 chg = set_if([top '/CLK/qpc_clock'], 'Parameters', sprintf('%.17g', p.Ts_clk)) || chg;
 if rx_on, want = 'off'; state = 'RX active'; else, want = 'on'; state = 'RX commented out, clock only'; end

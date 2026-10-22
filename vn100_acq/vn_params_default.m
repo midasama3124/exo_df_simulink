@@ -52,6 +52,7 @@ p.env_tol         = 1e-6;       % s, stop when the fitted line moves less than t
 p.env_maxit       = 50;         % [choice] iteration cap
 p.seg_min_pts     = 100;        % [choice] segments with fewer packets are not fitted (NaN times)
 p.map_extrap_max  = 0.050;      % [choice] s, allowed extrapolation outside the qpc_clock range
+p.imu_lp_hz       = 20;         % [choice] Hz, zero-phase low-pass for D.imu.gyro_filt / accel_filt (vn_load_run); 0 = off
 
 % ---------------- Gait events (vn_gait_events, optional milestone 3) ------
 p.f_lp_events     = 15;         % Hz, zero-phase low-pass of the sagittal angular rate
@@ -72,7 +73,7 @@ p.ev_T_range      = [0.5 1.5];  % [choice] valid stride time, fraction of the me
 
 % ---------------- Bench acceptance test (vn_bench_test) -------------------
 p.bench_subj      = 'bench';
-p.bench_T         = 600;        % s, length of runs A and B
+p.bench_T         = 360;        % s, length of runs A and B: bench_static_T still + 300 s moved by hand
 p.bench_static_T  = 60;         % s, IMU static at the start of run A
 p.bench_skip      = 2.0;        % [choice] s, start-up transient excluded from the timing statistics
 p.bench_rate_tol  = 1e-3;       % packet rate within 0.1 % of p.rate

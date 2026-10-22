@@ -89,6 +89,7 @@ try
     if isempty(strfind(upper(info.model), 'VN-100')) %#ok<STREMP>
         warning('vn_configure:model', 'Model "%s" is not a VN-100; check the layout against its manual.', info.model);
     end
+    [info.accel_comp, info.ref_frame_rot] = check_comp(s, p);   % read only
 
     if verify_only
         exp_mode = expected_async_mode(p, info);
@@ -255,6 +256,12 @@ if numel(st) >= 10
     meas.rate_sensor  = 1 / median(dt);
     meas.imu_rate_est = meas.rate_sensor * div;
     meas.ok = abs(meas.rate_sensor - p.rate) / p.rate <= p.rate_check_tol && d.crc_fail == 0;
+    if isfield(F, 'accel')                % static check: keep the unit still during the measurement
+        meas.accel_mean = mean(F.accel, 1);
+        meas.accel_norm = mean(sqrt(sum(F.accel.^2, 2)));
+        meas.accel_std  = std(F.accel, 0, 1);
+    end
+    if isfield(F, 'gyro'), meas.gyro_mean = mean(F.gyro, 1); end
 end
 end
 
@@ -315,9 +322,45 @@ end
 function print_rate(m, p)
 fprintf('Packet rate: %.3f Hz from TimeStartup (target %g), %.1f Hz on the wall clock, %d packets, %d CRC failures.\n', ...
     m.rate_sensor, p.rate, m.rate_wall, m.n_packets, m.crc_fail);
+if isfield(m, 'accel_mean')
+    fprintf('Mean over those packets (unit still): accel %s m/s^2 (|a| %.4f, std %s), gyro %s rad/s\n', ...
+        mat2str(m.accel_mean, 5), m.accel_norm, mat2str(m.accel_std, 2), mat2str(m.gyro_mean, 3));
+end
 end
 
 % ---- register access ----------------------------------------------------
+function [ac, rf] = check_comp(s, p)
+% Read (never write) register 25, Acceleration Compensation (C 3x3 row-major,
+% then bias B 3: a_out = C*(a - B)), and register 26, Reference Frame Rotation
+% (3x3).  Factory values are identity and zero; anything else scales or
+% rotates the accel output (run A read |a| = 9.51 m/s^2 flat on a table).
+ac = struct('C', nan(3), 'B', nan(3, 1), 'raw', '');
+rf = struct('R', nan(3), 'raw', '');
+try
+    v = str2double(vn_read(s, 25, p));
+    ac.raw = mat2str(v);
+    ac.C = reshape(v(1:9), 3, 3).';
+    ac.B = v(10:12).';
+    v = str2double(vn_read(s, 26, p));
+    rf.raw = mat2str(v);
+    rf.R = reshape(v(1:9), 3, 3).';
+catch ME
+    fprintf('Could not read registers 25/26 (%s).\n', ME.message);
+    return;
+end
+fprintf('Reg 25 accel compensation: C = %s, B = %s\n', mat2str(ac.C, 6), mat2str(ac.B.', 6));
+fprintf('Reg 26 reference frame rotation: R = %s\n', mat2str(rf.R, 6));
+if max(max(abs(ac.C - eye(3)))) > 1e-4 || any(abs(ac.B) > 1e-4)
+    warning('vn_configure:accelcomp', ['Register 25 is not the factory identity/zero: the accel output is ' ...
+        'rescaled/offset by the unit. Check whether this was intended.']);
+end
+if max(max(abs(rf.R - eye(3)))) > 1e-4
+    sv = svd(rf.R);
+    warning('vn_configure:refframe', ['Register 26 is not identity (singular values %s; values other than 1 ' ...
+        'scale the outputs).'], mat2str(sv.', 4));
+end
+end
+
 function fields = vn_read(s, reg, p)
 r = vn_txrx(s, sprintf('VNRRG,%02d', reg), 'RRG', reg, p.cmd_timeout);
 if ~r.found

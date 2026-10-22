@@ -1,15 +1,29 @@
+% Add VectorNav libraries to the current path
+addpath(fullfile(fileparts(mfilename('fullpath')), 'vn100_acq'));
 
+%% Experiment settings
+subject = 'S02';  trial = 'T02';        % change per trial
+simulation_time = 300.0;                % s after the Controller Switch is first on
 sample_time = 0.001;    % sec
 DEG2RAD = pi/180.0;
 n = 2;      % Number of joints
 p = 5;      % Number of parameters
-simulation_time = 360.0;   % sec
+
+vn_log_run(sprintf('%s_%s', subject, trial), 'C:\exo_logs');
 
 %% Motor limits
 motor_position_limits = DEG2RAD*[60.0, 60.0];   % degrees
 motor_velocity_limits = [11.5, 11.5];   % rad/s
 motor_saturation_torque = [10.0, 10.0];
 velocity_filter_cutoff = 0.95;
+
+%% VectorNav IMU settings
+vp = vn_params_default();
+vp.port = 'COM9';
+vp.log_dir = 'C:\exo_logs';
+
+%% Treadmill Settings
+treadmillSpeed = 1.1;  % m/s
 
 %% Control gains
 % % Supported controllers: {'cl', 'ef', 'df'}
