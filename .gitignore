@@ -19,6 +19,9 @@ slprj/
 *.asv
 *.m~
 
+# --- Mac-related files ---
+.DS_Store
+
 # --- Run logs and results (written to C:\exo_logs, but older runs went to vn100_acq\) ---
 *_imu_bytes.mat
 *_imu_diag.mat
@@ -31,3 +34,6 @@ vn100_acq/vn_unit_info_verify_*.mat
 
 # --- Backups made before the QUARC change (only needed if the repo root is code/) ---
 exo_df_simulink_backup_*/
+
+# --- Experimental data collected from exoskeleton trials ---
+experimental_data/
